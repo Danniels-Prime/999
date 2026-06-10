@@ -59,6 +59,11 @@ jobs:
           sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' \
             gradle/wrapper/gradle-wrapper.properties
 
+      - name: Upgrade Kotlin to 1.9.25 (expo-modules-core Compose Compiler requirement)
+        working-directory: expo-app/android
+        run: |
+          sed -i 's/kotlinVersion = "1\.9\.[0-9]*/kotlinVersion = "1.9.25/' build.gradle
+
       - name: Use debug signing for CI release build
         working-directory: expo-app/android
         run: |
