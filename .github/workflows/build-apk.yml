@@ -53,17 +53,6 @@ jobs:
           printf '\norg.gradle.jvmargs=-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8\n' >> gradle.properties
           printf 'android.enableR8.fullMode=false\n' >> gradle.properties
 
-      - name: Pin Gradle 8.10.2 (RN 0.76 incompatible with Gradle 9.x)
-        working-directory: expo-app/android
-        run: |
-          sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' \
-            gradle/wrapper/gradle-wrapper.properties
-
-      - name: Upgrade Kotlin to 1.9.25 (expo-modules-core Compose Compiler requirement)
-        working-directory: expo-app/android
-        run: |
-          sed -i 's/kotlinVersion = "1\.9\.[0-9]*/kotlinVersion = "1.9.25/' build.gradle
-
       - name: Use debug signing for CI release build
         working-directory: expo-app/android
         run: |
