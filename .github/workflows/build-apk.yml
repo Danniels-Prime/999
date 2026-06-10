@@ -2,8 +2,13 @@ name: Build OverlayLang APK
 
 on:
   push:
-    branches: [main, claude/expo-app]
-    paths: ['expo-app/**']
+    branches:
+      - main
+      - 'claude/expo-app'
+      - 'claude/expo-android-apk-setup-gwoet3'
+    paths:
+      - 'expo-app/**'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
 permissions:
@@ -30,17 +35,22 @@ jobs:
 
       - name: Install dependencies
         working-directory: expo-app
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Expo prebuild (Android)
         working-directory: expo-app
         run: npx expo prebuild --platform android --no-install
 
-      - name: Pin Gradle 8.10.2 (RN 0.76 incompatible with Gradle 9.x Kotlin)
-        working-directory: expo-app/android
-        run: |
-          sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' \
-            gradle/wrapper/gradle-wrapper.properties
+      - name: Accept Android SDK licences
+        run: yes | sdkmanager --licenses || true
+
+      - name: Disable R8 / ProGuard
+        working-directory: expo-app
+        run: echo "android.enableProguardInReleaseBuilds=false" >> android/gradle.properties
+
+      - name: Pin Gradle 8.10.2
+        working-directory: expo-app
+        run: sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
 
       - name: Make gradlew executable
         working-directory: expo-app/android
@@ -48,6 +58,8 @@ jobs:
 
       - name: Build release APK
         working-directory: expo-app/android
+        env:
+          GRADLE_OPTS: "-Xmx4g"
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Locate APK
@@ -82,7 +94,7 @@ jobs:
             3. Open the downloaded APK and install
 
             ### Features
-            - EN↔ES translation — works offline with bundled dictionary
+            - EN⇔ES translation — works offline with bundled dictionary
             - IPA phonetics for English words
             - Voice input (add Deepgram API key in Settings)
             - History with search
