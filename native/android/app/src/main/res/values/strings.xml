@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">OverlayLang</string>
+    <string name="accessibility_service_description">OverlayLang detects words you double-tap, drag over, or long-press anywhere on your screen — including the home screen and all apps — so it can show you the translation, phonetics, and examples instantly.</string>
+</resources>

@@ -1,0 +1,92 @@
+name: Build OverlayLang APK
+
+on:
+  push:
+    branches: [main, claude/expo-app]
+    paths: ['expo-app/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        working-directory: expo-app
+        run: npm install
+
+      - name: Expo prebuild (Android)
+        working-directory: expo-app
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Pin Gradle 8.10.2 (RN 0.76 incompatible with Gradle 9.x Kotlin)
+        working-directory: expo-app/android
+        run: |
+          sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' \
+            gradle/wrapper/gradle-wrapper.properties
+
+      - name: Make gradlew executable
+        working-directory: expo-app/android
+        run: chmod +x gradlew
+
+      - name: Build release APK
+        working-directory: expo-app/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Locate APK
+        id: find_apk
+        working-directory: expo-app
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+          echo "Found APK: $APK"
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./expo-app/app.json').expo.version")
+          BUILD=$(node -p "require('./expo-app/app.json').expo.android.versionCode")
+          TS=$(date +%Y%m%d%H%M)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "ts=$TS" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-${{ steps.version.outputs.ts }}
+          name: OverlayLang v${{ steps.version.outputs.version }}
+          body: |
+            ## OverlayLang v${{ steps.version.outputs.version }}
+
+            ### Install on Android
+            1. Download the APK below
+            2. Enable **Install from unknown sources** in Settings → Security
+            3. Open the downloaded APK and install
+
+            ### Features
+            - EN↔ES translation — works offline with bundled dictionary
+            - IPA phonetics for English words
+            - Voice input (add Deepgram API key in Settings)
+            - History with search
+            - Optional Supabase sync (add credentials in Settings)
+          files: expo-app/${{ steps.find_apk.outputs.apk_path }}
+          draft: false
+          prerelease: false
