@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      - 'claude/expo-app'
-      - 'claude/expo-android-apk-setup-gwoet3'
+      - claude/expo-app
+      - claude/expo-android-apk-setup-gwoet3
     paths:
       - 'expo-app/**'
       - '.github/workflows/build-apk.yml'
@@ -39,18 +39,25 @@ jobs:
 
       - name: Expo prebuild (Android)
         working-directory: expo-app
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+          JAVA_HOME_17_X64: ${{ env.JAVA_HOME_17_X64 }}
         run: npx expo prebuild --platform android --no-install
 
-      - name: Accept Android SDK licences
+      - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Disable R8 / ProGuard
-        working-directory: expo-app
-        run: echo "android.enableProguardInReleaseBuilds=false" >> android/gradle.properties
+      - name: Configure Gradle and disable R8
+        working-directory: expo-app/android
+        run: |
+          printf '\norg.gradle.jvmargs=-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8\n' >> gradle.properties
+          printf 'android.enableR8.fullMode=false\n' >> gradle.properties
 
-      - name: Pin Gradle 8.10.2
-        working-directory: expo-app
-        run: sed -i 's|gradle-.*-bin.zip|gradle-8.10.2-bin.zip|' android/gradle/wrapper/gradle-wrapper.properties
+      - name: Use debug signing for CI release build
+        working-directory: expo-app/android
+        run: |
+          sed -i 's/signingConfig signingConfigs\.release/signingConfig signingConfigs.debug/g' \
+            app/build.gradle
 
       - name: Make gradlew executable
         working-directory: expo-app/android
@@ -59,7 +66,7 @@ jobs:
       - name: Build release APK
         working-directory: expo-app/android
         env:
-          GRADLE_OPTS: "-Xmx4g"
+          GRADLE_OPTS: "-Xmx4g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8"
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Locate APK
@@ -94,7 +101,7 @@ jobs:
             3. Open the downloaded APK and install
 
             ### Features
-            - EN⇔ES translation — works offline with bundled dictionary
+            - EN↔ES translation — works offline with bundled dictionary
             - IPA phonetics for English words
             - Voice input (add Deepgram API key in Settings)
             - History with search

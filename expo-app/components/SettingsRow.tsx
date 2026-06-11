@@ -5,6 +5,7 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../constants/theme';
 
@@ -30,6 +31,44 @@ export function ToggleRow({ label, description, value, onToggle }: ToggleRowProp
         trackColor={{ false: Colors.border, true: Colors.accentDim }}
         thumbColor={value ? Colors.accent : Colors.textMuted}
       />
+    </View>
+  );
+}
+
+// ── Permission row ──────────────────────────────────────────────────────────────
+
+interface PermissionRowProps {
+  label: string;
+  description?: string;
+  granted: boolean | null; // null = loading
+  onAction: () => void;
+  actionLabel?: string;
+}
+
+export function PermissionRow({
+  label,
+  description,
+  granted,
+  onAction,
+  actionLabel = 'Grant Access',
+}: PermissionRowProps) {
+  return (
+    <View style={styles.row}>
+      <View style={styles.labelBlock}>
+        <Text style={styles.label}>{label}</Text>
+        {description && <Text style={styles.description}>{description}</Text>}
+      </View>
+      {granted === null ? (
+        <ActivityIndicator size="small" color={Colors.accent} />
+      ) : granted ? (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>✓ Granted</Text>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.actionBtn} onPress={onAction} activeOpacity={0.7}>
+          <Text style={styles.actionBtnText}>{actionLabel}</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -106,6 +145,30 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
     lineHeight: 16,
+  },
+  badge: {
+    backgroundColor: Colors.accentGlow,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: Colors.borderAccent,
+  },
+  badgeText: {
+    fontFamily: FontFamily.sansMedium,
+    fontSize: FontSize.xs,
+    color: Colors.accent,
+  },
+  actionBtn: {
+    backgroundColor: Colors.accentDim,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  actionBtnText: {
+    fontFamily: FontFamily.sansMedium,
+    fontSize: FontSize.xs,
+    color: Colors.textPrimary,
   },
   secretBlock: {
     backgroundColor: Colors.bgCard,

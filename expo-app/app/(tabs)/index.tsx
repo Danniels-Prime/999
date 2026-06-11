@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { Audio } from 'expo-av';
+import { useAudioRecorder, RecordingPresets, AudioModule } from 'expo-audio';
 import { useSettings } from '../../hooks/useSettings';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useHistory } from '../../hooks/useHistory';
+import { useBackgroundTranscription } from '../../hooks/useBackgroundTranscription';
 import { transcribeAudio } from '../../lib/deepgram';
 import { TranslationCard } from '../../components/TranslationCard';
 import { WordInput } from '../../components/WordInput';
@@ -24,8 +25,23 @@ export default function HomeScreen() {
   const { result, loading, error, lookup } = useTranslation(settings);
   const { addEntry } = useHistory(settings);
 
+  const bgLang = settings.langDirection === 'en_es' ? 'en-US' : 'es';
+  const { transcript, showOverlay, hideOverlay, canDrawOverlays } =
+    useBackgroundTranscription(settings.deepgramApiKey, bgLang);
+
   const [recording, setRecording] = useState(false);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // When background transcription delivers a new result, show overlay and look it up
+  useEffect(() => {
+    if (!transcript) return;
+    (async () => {
+      const ok = await canDrawOverlays();
+      if (ok) showOverlay(transcript);
+      await handleLookup(transcript);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcript]);
 
   const handleLookup = useCallback(
     async (text: string) => {
@@ -47,13 +63,10 @@ export default function HomeScreen() {
     }
 
     if (recording) {
-      // Stop recording
       setRecording(false);
-      const rec = recordingRef.current;
-      if (!rec) return;
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      recordingRef.current = null;
+      await audioRecorder.stop();
+      hideOverlay();
+      const uri = audioRecorder.getStatus().url ?? null;
       if (uri) {
         try {
           const transcript = await transcribeAudio(uri, settings.deepgramApiKey);
@@ -64,25 +77,22 @@ export default function HomeScreen() {
         }
       }
     } else {
-      // Start recording
       try {
-        const { status } = await Audio.requestPermissionsAsync();
+        const { status } = await AudioModule.requestRecordingPermissionsAsync();
         if (status !== 'granted') {
           Alert.alert('Permission Required', 'Microphone permission is needed for voice input.');
           return;
         }
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        const { recording: rec } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        recordingRef.current = rec;
+        await AudioModule.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        await audioRecorder.prepareToRecordAsync();
+        audioRecorder.record();
         setRecording(true);
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } catch {
         Alert.alert('Error', 'Could not start recording.');
       }
     }
-  }, [recording, settings.deepgramApiKey, handleLookup]);
+  }, [recording, settings.deepgramApiKey, handleLookup, audioRecorder, hideOverlay]);
 
   const dirLabel =
     settings.langDirection === 'en_es' ? '🇺🇸 EN  →  🇪🇸 ES' : '🇪🇸 ES  →  🇺🇸 EN';

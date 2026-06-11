@@ -15,6 +15,7 @@ import {
   JetBrainsMono_500Medium,
   JetBrainsMono_700Bold,
 } from '@expo-google-fonts/jetbrains-mono';
+import { AudioModule } from 'expo-audio';
 import { Colors } from '../constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -31,7 +32,11 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
+    if (!fontsLoaded) return;
+    (async () => {
+      await AudioModule.requestRecordingPermissionsAsync();
+      await SplashScreen.hideAsync();
+    })();
   }, [fontsLoaded]);
 
   if (!fontsLoaded) return null;
