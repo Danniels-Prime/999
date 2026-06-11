@@ -20,6 +20,7 @@
     "expo-haptics": "~56.0.3",
     "expo-linking": "~56.0.14",
     "expo-constants": "~56.0.18",
+    "expo-intent-launcher": "~56.0.4",
     "@expo-google-fonts/inter": "^0.2.3",
     "@expo-google-fonts/jetbrains-mono": "^0.2.3",
     "@react-native-async-storage/async-storage": "2.2.0",

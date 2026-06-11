@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { useAudioRecorder, RecordingPresets, AudioModule } from 'expo-audio';
 import { useSettings } from '../../hooks/useSettings';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useHistory } from '../../hooks/useHistory';
+import { useBackgroundTranscription } from '../../hooks/useBackgroundTranscription';
 import { transcribeAudio } from '../../lib/deepgram';
 import { TranslationCard } from '../../components/TranslationCard';
 import { WordInput } from '../../components/WordInput';
@@ -24,8 +25,23 @@ export default function HomeScreen() {
   const { result, loading, error, lookup } = useTranslation(settings);
   const { addEntry } = useHistory(settings);
 
+  const bgLang = settings.langDirection === 'en_es' ? 'en-US' : 'es';
+  const { transcript, showOverlay, hideOverlay, canDrawOverlays } =
+    useBackgroundTranscription(settings.deepgramApiKey, bgLang);
+
   const [recording, setRecording] = useState(false);
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // When background transcription delivers a new result, show overlay and look it up
+  useEffect(() => {
+    if (!transcript) return;
+    (async () => {
+      const ok = await canDrawOverlays();
+      if (ok) showOverlay(transcript);
+      await handleLookup(transcript);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcript]);
 
   const handleLookup = useCallback(
     async (text: string) => {
@@ -47,9 +63,9 @@ export default function HomeScreen() {
     }
 
     if (recording) {
-      // Stop recording
       setRecording(false);
       await audioRecorder.stop();
+      hideOverlay();
       const uri = audioRecorder.getStatus().url ?? null;
       if (uri) {
         try {
@@ -61,7 +77,6 @@ export default function HomeScreen() {
         }
       }
     } else {
-      // Start recording
       try {
         const { status } = await AudioModule.requestRecordingPermissionsAsync();
         if (status !== 'granted') {
@@ -77,7 +92,7 @@ export default function HomeScreen() {
         Alert.alert('Error', 'Could not start recording.');
       }
     }
-  }, [recording, settings.deepgramApiKey, handleLookup, audioRecorder]);
+  }, [recording, settings.deepgramApiKey, handleLookup, audioRecorder, hideOverlay]);
 
   const dirLabel =
     settings.langDirection === 'en_es' ? '🇺🇸 EN  →  🇪🇸 ES' : '🇪🇸 ES  →  🇺🇸 EN';

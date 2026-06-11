@@ -1,8 +1,13 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState, useEffect, useCallback } from 'react';
+import { AudioModule } from 'expo-audio';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { useSettings } from '../../hooks/useSettings';
+import { useBackgroundTranscription } from '../../hooks/useBackgroundTranscription';
 import {
   ToggleRow,
+  PermissionRow,
   SecretRow,
   SectionHeader,
 } from '../../components/SettingsRow';
@@ -16,11 +21,95 @@ const DIRECTION_OPTIONS: Array<{ value: LangDirection; label: string }> = [
 
 export default function SettingsScreen() {
   const { settings, updateKey } = useSettings();
+  const bgLang = settings.langDirection === 'en_es' ? 'en-US' : 'es';
+  const { active, start, stop, canDrawOverlays } = useBackgroundTranscription(
+    settings.deepgramApiKey,
+    bgLang
+  );
+
+  const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  const [overlayGranted, setOverlayGranted] = useState<boolean | null>(null);
+  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
+
+  const refreshPermissions = useCallback(async () => {
+    const mic = await AudioModule.getRecordingPermissionsAsync();
+    setMicGranted(mic.granted);
+
+    const overlay = await canDrawOverlays();
+    setOverlayGranted(overlay);
+
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      const notif = await PermissionsAndroid.check('android.permission.POST_NOTIFICATIONS');
+      setNotifGranted(notif);
+    } else {
+      setNotifGranted(true);
+    }
+  }, [canDrawOverlays]);
+
+  useEffect(() => {
+    refreshPermissions();
+  }, [refreshPermissions]);
+
+  const requestMic = async () => {
+    await AudioModule.requestRecordingPermissionsAsync();
+    await refreshPermissions();
+  };
+
+  const openOverlaySettings = async () => {
+    if (Platform.OS !== 'android') return;
+    await IntentLauncher.startActivityAsync(
+      'android.settings.action.MANAGE_OVERLAY_PERMISSION' as any,
+      { data: 'package:com.overlaylang.app' }
+    );
+    await refreshPermissions();
+  };
+
+  const requestNotifications = async () => {
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as any);
+      await refreshPermissions();
+    }
+  };
+
+  const handleBgToggle = (v: boolean) => {
+    if (v) start();
+    else stop();
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Settings</Text>
+
+        {/* Permissions */}
+        <SectionHeader title="Permissions" />
+        <View style={styles.group}>
+          <PermissionRow
+            label="Microphone"
+            description="Required for voice input and background transcription."
+            granted={micGranted}
+            onAction={requestMic}
+          />
+          <PermissionRow
+            label="Draw Over Apps"
+            description="Shows floating overlay with transcription while using other apps."
+            granted={overlayGranted}
+            onAction={openOverlaySettings}
+            actionLabel="Enable"
+          />
+          <PermissionRow
+            label="Notifications"
+            description="Shows persistent notification while background listening is active."
+            granted={notifGranted}
+            onAction={requestNotifications}
+          />
+          <ToggleRow
+            label="Background Mic"
+            description="Keep recording and transcribing when the app is in the background."
+            value={active}
+            onToggle={handleBgToggle}
+          />
+        </View>
 
         {/* Language */}
         <SectionHeader title="Language" />
