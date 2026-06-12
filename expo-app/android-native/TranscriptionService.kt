@@ -11,6 +11,7 @@ import android.media.MediaRecorder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.Job
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.net.HttpURLConnection
@@ -21,18 +22,18 @@ class TranscriptionService : Service() {
 
     companion object {
         const val ACTION_TRANSCRIPTION = "com.overlaylang.app.ACTION_TRANSCRIPTION"
-        const val EXTRA_TEXT = "transcription_text"
-        const val EXTRA_API_KEY = "api_key"
+        const val EXTRA_TEXT     = "transcription_text"
+        const val EXTRA_API_KEY  = "api_key"
         const val EXTRA_LANGUAGE = "language"
-        private const val CHANNEL_ID = "transcription_service"
-        private const val NOTIFICATION_ID = 1001
-        private const val SAMPLE_RATE = 16000
-        private const val CHUNK_SECONDS = 4
+        private const val CHANNEL_ID       = "transcription_service"
+        private const val NOTIFICATION_ID  = 1001
+        private const val SAMPLE_RATE      = 16000
+        private const val CHUNK_SECONDS    = 4
     }
 
-    private var serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var serviceScope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var audioRecord: AudioRecord? = null
-    private var apiKey: String = ""
+    private var apiKey:   String = ""
     private var language: String = "en-US"
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -43,12 +44,10 @@ class TranscriptionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        apiKey = intent?.getStringExtra(EXTRA_API_KEY) ?: ""
+        apiKey   = intent?.getStringExtra(EXTRA_API_KEY)  ?: ""
         language = intent?.getStringExtra(EXTRA_LANGUAGE) ?: "en-US"
-
         startForeground(NOTIFICATION_ID, buildNotification())
         serviceScope.launch { recordAndTranscribe() }
-
         return START_NOT_STICKY
     }
 
@@ -107,11 +106,15 @@ class TranscriptionService : Service() {
         recorder.startRecording()
 
         val chunkSamples = SAMPLE_RATE * CHUNK_SECONDS
-        val buffer = ShortArray(chunkSamples)
+        val buffer       = ShortArray(chunkSamples)
 
-        while (currentCoroutineContext().isActive) {
+        // Job.isActive is a direct interface property — no extension resolution
+        // issues across different kotlinx.coroutines / Kotlin versions.
+        val job = currentCoroutineContext()[Job] ?: return
+
+        while (job.isActive) {
             var totalRead = 0
-            while (totalRead < chunkSamples && currentCoroutineContext().isActive) {
+            while (totalRead < chunkSamples && job.isActive) {
                 val read = recorder.read(buffer, totalRead, chunkSamples - totalRead)
                 if (read <= 0) break
                 totalRead += read
@@ -129,23 +132,20 @@ class TranscriptionService : Service() {
     private fun buildWav(pcm: ShortArray, samples: Int): ByteArray {
         val out = ByteArrayOutputStream()
         val dos = DataOutputStream(out)
-        val dataSize = samples * 2
+        val dataSize  = samples * 2
         val chunkSize = 36 + dataSize
 
-        // RIFF header
         dos.writeBytes("RIFF")
         dos.writeIntLE(chunkSize)
         dos.writeBytes("WAVE")
-        // fmt chunk
         dos.writeBytes("fmt ")
         dos.writeIntLE(16)
-        dos.writeShortLE(1)  // PCM
-        dos.writeShortLE(1)  // mono
+        dos.writeShortLE(1)
+        dos.writeShortLE(1)
         dos.writeIntLE(SAMPLE_RATE)
         dos.writeIntLE(SAMPLE_RATE * 2)
         dos.writeShortLE(2)
         dos.writeShortLE(16)
-        // data chunk
         dos.writeBytes("data")
         dos.writeIntLE(dataSize)
         for (i in 0 until samples) {
@@ -159,14 +159,14 @@ class TranscriptionService : Service() {
 
     private fun postToDeepgram(wav: ByteArray, key: String, lang: String): String {
         val langCode = if (lang.startsWith("es")) "es" else "en-US"
-        val url = URL("https://api.deepgram.com/v1/listen?model=nova-2&language=$langCode")
+        val url  = URL("https://api.deepgram.com/v1/listen?model=nova-2&language=$langCode")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Authorization", "Token $key")
         conn.setRequestProperty("Content-Type", "audio/wav")
-        conn.doOutput = true
+        conn.doOutput      = true
         conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
+        conn.readTimeout    = 15_000
         conn.outputStream.use { it.write(wav) }
 
         if (conn.responseCode != 200) return ""
@@ -187,15 +187,11 @@ class TranscriptionService : Service() {
     }
 }
 
-// Little-endian helpers for DataOutputStream
 private fun DataOutputStream.writeIntLE(v: Int) {
-    write(v and 0xFF)
-    write((v shr 8) and 0xFF)
-    write((v shr 16) and 0xFF)
-    write((v shr 24) and 0xFF)
+    write(v and 0xFF); write((v shr 8) and 0xFF)
+    write((v shr 16) and 0xFF); write((v shr 24) and 0xFF)
 }
 
 private fun DataOutputStream.writeShortLE(v: Int) {
-    write(v and 0xFF)
-    write((v shr 8) and 0xFF)
+    write(v and 0xFF); write((v shr 8) and 0xFF)
 }
