@@ -109,9 +109,9 @@ class TranscriptionService : Service() {
         val chunkSamples = SAMPLE_RATE * CHUNK_SECONDS
         val buffer = ShortArray(chunkSamples)
 
-        while (coroutineContext.isActive) {
+        while (currentCoroutineContext().isActive) {
             var totalRead = 0
-            while (totalRead < chunkSamples && coroutineContext.isActive) {
+            while (totalRead < chunkSamples && currentCoroutineContext().isActive) {
                 val read = recorder.read(buffer, totalRead, chunkSamples - totalRead)
                 if (read <= 0) break
                 totalRead += read
