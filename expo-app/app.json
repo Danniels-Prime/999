@@ -19,7 +19,8 @@
         "backgroundColor": "#060810"
       },
       "package": "com.overlaylang.app",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": ["RECORD_AUDIO"]
     },
     "plugins": [
       "expo-router",

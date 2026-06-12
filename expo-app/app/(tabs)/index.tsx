@@ -10,11 +10,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import { useSettings } from '../../hooks/useSettings';
 import { useTranslation } from '../../hooks/useTranslation';
 import { useHistory } from '../../hooks/useHistory';
 import { transcribeAudio } from '../../lib/deepgram';
+import { startListening, stopListening } from '../../lib/speech';
 import { TranslationCard } from '../../components/TranslationCard';
 import { WordInput } from '../../components/WordInput';
 import { Colors, FontFamily, FontSize, Spacing } from '../../constants/theme';
@@ -31,46 +33,50 @@ export default function HomeScreen() {
     async (text: string) => {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const res = await lookup(text);
-      if (res) addEntry(res);
+      if (res) {
+        addEntry(res);
+        if (settings.autoTts) {
+          const ttsLang = settings.langDirection === 'en_es' ? 'es-ES' : 'en-US';
+          Speech.speak(res.translation, { language: ttsLang });
+        }
+      }
     },
-    [lookup, addEntry]
+    [lookup, addEntry, settings.autoTts, settings.langDirection]
   );
 
   const handleMicPress = useCallback(async () => {
-    if (!settings.deepgramApiKey) {
-      Alert.alert(
-        'Deepgram API Key Required',
-        'Add your Deepgram API key in Settings to use voice input.',
-        [{ text: 'OK' }]
-      );
+    if (recording) {
+      setRecording(false);
+      if (settings.deepgramApiKey) {
+        const rec = recordingRef.current;
+        if (!rec) return;
+        await rec.stopAndUnloadAsync();
+        const uri = rec.getURI();
+        recordingRef.current = null;
+        if (uri) {
+          try {
+            const lang = settings.langDirection === 'en_es' ? 'en-US' : 'es';
+            const transcript = await transcribeAudio(uri, settings.deepgramApiKey, lang);
+            if (transcript) await handleLookup(transcript);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Transcription failed';
+            Alert.alert('Voice Error', msg);
+          }
+        }
+      } else {
+        await stopListening();
+      }
       return;
     }
 
-    if (recording) {
-      // Stop recording
-      setRecording(false);
-      const rec = recordingRef.current;
-      if (!rec) return;
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-      recordingRef.current = null;
-      if (uri) {
-        try {
-          const transcript = await transcribeAudio(uri, settings.deepgramApiKey);
-          if (transcript) await handleLookup(transcript);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Transcription failed';
-          Alert.alert('Voice Error', msg);
-        }
-      }
-    } else {
-      // Start recording
+    const { status } = await Audio.requestPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission Required', 'Microphone permission is needed for voice input.');
+      return;
+    }
+
+    if (settings.deepgramApiKey) {
       try {
-        const { status } = await Audio.requestPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert('Permission Required', 'Microphone permission is needed for voice input.');
-          return;
-        }
         await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
         const { recording: rec } = await Audio.Recording.createAsync(
           Audio.RecordingOptionsPresets.HIGH_QUALITY
@@ -81,8 +87,21 @@ export default function HomeScreen() {
       } catch {
         Alert.alert('Error', 'Could not start recording.');
       }
+    } else {
+      try {
+        setRecording(true);
+        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        const locale = settings.langDirection === 'en_es' ? 'en-US' : 'es-ES';
+        const transcript = await startListening(locale);
+        setRecording(false);
+        if (transcript) await handleLookup(transcript);
+      } catch (err) {
+        setRecording(false);
+        const msg = err instanceof Error ? err.message : 'Speech recognition failed';
+        Alert.alert('Voice Error', msg);
+      }
     }
-  }, [recording, settings.deepgramApiKey, handleLookup]);
+  }, [recording, settings, handleLookup]);
 
   const dirLabel =
     settings.langDirection === 'en_es' ? '🇺🇸 EN  →  🇪🇸 ES' : '🇪🇸 ES  →  🇺🇸 EN';
@@ -98,13 +117,11 @@ export default function HomeScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
           <View style={styles.header}>
             <Text style={styles.appName}>OverlayLang</Text>
             <Text style={styles.dirLabel}>{dirLabel}</Text>
           </View>
 
-          {/* Input */}
           <WordInput
             onSubmit={handleLookup}
             onMicPress={handleMicPress}
@@ -112,14 +129,12 @@ export default function HomeScreen() {
             recording={recording}
           />
 
-          {/* Error */}
           {error && (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>⚠ {error}</Text>
             </View>
           )}
 
-          {/* Result */}
           {result && (
             <TranslationCard
               result={result}
@@ -128,7 +143,6 @@ export default function HomeScreen() {
             />
           )}
 
-          {/* Empty state */}
           {!result && !loading && !error && (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>⚡</Text>

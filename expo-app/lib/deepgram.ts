@@ -1,43 +1,34 @@
-/**
- * Deepgram Nova-2 speech-to-text.
- * API key is stored in user Settings — never hardcoded.
- */
-import type { DeepgramResponse } from '../types';
-
 const DEEPGRAM_URL = 'https://api.deepgram.com/v1/listen';
 
 export async function transcribeAudio(
   audioUri: string,
   apiKey: string,
   language = 'en-US'
-): Promise<string> {
-  if (!apiKey) throw new Error('Deepgram API key not configured. Add it in Settings.');
-
-  // Read the file as a blob
+): Promise<string | null> {
   const response = await fetch(audioUri);
   const blob = await response.blob();
 
-  const res = await fetch(
-    `${DEEPGRAM_URL}?model=nova-2&language=${language}&punctuate=true`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Token ${apiKey}`,
-        'Content-Type': blob.type || 'audio/webm',
-      },
-      body: blob,
-      signal: AbortSignal.timeout(15000),
-    }
-  );
+  const url = `${DEEPGRAM_URL}?model=nova-2&language=${language}&punctuate=true`;
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Deepgram error ${res.status}: ${err}`);
-  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${apiKey}`,
+      'Content-Type': 'audio/m4a',
+    },
+    body: blob,
+    signal: AbortSignal.timeout(15000),
+  });
 
-  const json = (await res.json()) as DeepgramResponse;
-  const transcript =
-    json.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? '';
+  if (!res.ok) throw new Error(`Deepgram ${res.status}`);
 
-  return transcript.trim();
+  const json = await res.json() as {
+    results: {
+      channels: Array<{
+        alternatives: Array<{ transcript: string }>;
+      }>;
+    };
+  };
+
+  return json.results.channels[0]?.alternatives[0]?.transcript ?? null;
 }

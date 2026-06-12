@@ -4,8 +4,8 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  Animated,
 } from 'react-native';
+import * as Speech from 'expo-speech';
 import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../constants/theme';
 import type { TranslationResult, LangDirection } from '../types';
 
@@ -20,6 +20,11 @@ export function TranslationCard({ result, direction, showPhonetics }: Props) {
 
   const srcFlag = direction === 'en_es' ? '🇺🇸' : '🇪🇸';
   const tgtFlag = direction === 'en_es' ? '🇪🇸' : '🇺🇸';
+  const tgtLang = direction === 'en_es' ? 'es-ES' : 'en-US';
+
+  const handleSpeak = () => {
+    Speech.speak(result.translation, { language: tgtLang });
+  };
 
   return (
     <View style={styles.card}>
@@ -43,12 +48,15 @@ export function TranslationCard({ result, direction, showPhonetics }: Props) {
 
       <View style={styles.divider} />
 
-      {/* Translation */}
+      {/* Translation + speak button */}
       <View style={styles.translationRow}>
         <Text style={styles.flagText}>{tgtFlag}</Text>
         <Text style={styles.translationText} numberOfLines={4}>
           {result.translation}
         </Text>
+        <TouchableOpacity onPress={handleSpeak} style={styles.speakBtn} activeOpacity={0.7}>
+          <Text style={styles.speakBtnText}>🔊</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.divider} />
@@ -134,7 +142,7 @@ const styles = StyleSheet.create({
   },
   translationRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: Spacing.sm,
   },
   translationText: {
@@ -143,6 +151,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize['2xl'],
     color: Colors.accent,
     lineHeight: 34,
+  },
+  speakBtn: {
+    padding: Spacing.xs,
+  },
+  speakBtnText: {
+    fontSize: 22,
   },
   examplesBtn: {
     paddingVertical: Spacing.xs,
