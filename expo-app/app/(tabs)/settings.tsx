@@ -1,15 +1,14 @@
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Platform, PermissionsAndroid } from 'react-native';
+import {
+  View, Text, ScrollView, TouchableOpacity,
+  StyleSheet, Platform, PermissionsAndroid, AppState,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useCallback } from 'react';
 import { AudioModule } from 'expo-audio';
-import * as IntentLauncher from 'expo-intent-launcher';
 import { useSettings } from '../../hooks/useSettings';
 import { useBackgroundTranscription } from '../../hooks/useBackgroundTranscription';
 import {
-  ToggleRow,
-  PermissionRow,
-  SecretRow,
-  SectionHeader,
+  ToggleRow, PermissionRow, SecretRow, SectionHeader,
 } from '../../components/SettingsRow';
 import { Colors, FontFamily, FontSize, Radius, Spacing } from '../../constants/theme';
 import type { LangDirection } from '../../types';
@@ -22,14 +21,12 @@ const DIRECTION_OPTIONS: Array<{ value: LangDirection; label: string }> = [
 export default function SettingsScreen() {
   const { settings, updateKey } = useSettings();
   const bgLang = settings.langDirection === 'en_es' ? 'en-US' : 'es';
-  const { active, start, stop, canDrawOverlays } = useBackgroundTranscription(
-    settings.deepgramApiKey,
-    bgLang
-  );
+  const { active, start, stop, canDrawOverlays, openOverlaySettings } =
+    useBackgroundTranscription(settings.deepgramApiKey, bgLang);
 
-  const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  const [micGranted,     setMicGranted]     = useState<boolean | null>(null);
   const [overlayGranted, setOverlayGranted] = useState<boolean | null>(null);
-  const [notifGranted, setNotifGranted] = useState<boolean | null>(null);
+  const [notifGranted,   setNotifGranted]   = useState<boolean | null>(null);
 
   const refreshPermissions = useCallback(async () => {
     const mic = await AudioModule.getRecordingPermissionsAsync();
@@ -39,15 +36,24 @@ export default function SettingsScreen() {
     setOverlayGranted(overlay);
 
     if (Platform.OS === 'android' && Platform.Version >= 33) {
-      const notif = await PermissionsAndroid.check('android.permission.POST_NOTIFICATIONS');
+      const notif = await PermissionsAndroid.check(
+        'android.permission.POST_NOTIFICATIONS' as any
+      );
       setNotifGranted(notif);
     } else {
       setNotifGranted(true);
     }
   }, [canDrawOverlays]);
 
+  // Initial check
+  useEffect(() => { refreshPermissions(); }, [refreshPermissions]);
+
+  // Re-check whenever the app returns to foreground (user came back from Android Settings)
   useEffect(() => {
-    refreshPermissions();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshPermissions();
+    });
+    return () => sub.remove();
   }, [refreshPermissions]);
 
   const requestMic = async () => {
@@ -55,33 +61,29 @@ export default function SettingsScreen() {
     await refreshPermissions();
   };
 
-  const openOverlaySettings = async () => {
-    if (Platform.OS !== 'android') return;
-    await IntentLauncher.startActivityAsync(
-      'android.settings.action.MANAGE_OVERLAY_PERMISSION' as any,
-      { data: 'package:com.overlaylang.app' }
-    );
+  const handleOverlayPress = async () => {
+    await openOverlaySettings();
+    // Wait a beat — Android needs a moment to persist the permission change
+    await new Promise((r) => setTimeout(r, 600));
     await refreshPermissions();
   };
 
   const requestNotifications = async () => {
     if (Platform.OS === 'android' && Platform.Version >= 33) {
-      await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS' as any);
+      await PermissionsAndroid.request(
+        'android.permission.POST_NOTIFICATIONS' as any
+      );
       await refreshPermissions();
     }
   };
 
-  const handleBgToggle = (v: boolean) => {
-    if (v) start();
-    else stop();
-  };
+  const handleBgToggle = (v: boolean) => { if (v) start(); else stop(); };
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Settings</Text>
 
-        {/* Permissions */}
         <SectionHeader title="Permissions" />
         <View style={styles.group}>
           <PermissionRow
@@ -94,7 +96,7 @@ export default function SettingsScreen() {
             label="Draw Over Apps"
             description="Shows floating overlay with transcription while using other apps."
             granted={overlayGranted}
-            onAction={openOverlaySettings}
+            onAction={handleOverlayPress}
             actionLabel="Enable"
           />
           <PermissionRow
@@ -111,7 +113,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Language */}
         <SectionHeader title="Language" />
         <View style={styles.dirRow}>
           {DIRECTION_OPTIONS.map((opt) => (
@@ -136,7 +137,6 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        {/* Output */}
         <SectionHeader title="Output" />
         <View style={styles.group}>
           <ToggleRow
@@ -153,7 +153,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Voice */}
         <SectionHeader title="Voice Input" />
         <View style={styles.group}>
           <SecretRow
@@ -165,7 +164,6 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Supabase */}
         <SectionHeader title="Sync (optional)" />
         <View style={styles.group}>
           <SecretRow
@@ -179,17 +177,16 @@ export default function SettingsScreen() {
             label="Supabase Anon Key"
             description="Public anon key from the same page. Row Level Security must be enabled."
             value={settings.supabaseAnonKey}
-            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…"
+            placeholder="eyJhbGci…"
             onChangeText={(v) => updateKey('supabaseAnonKey', v)}
           />
         </View>
 
-        {/* Info */}
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>🔒 Privacy</Text>
           <Text style={styles.infoBody}>
-            All API keys are stored only on this device using AsyncStorage.
-            They are never sent to any server other than the service you configured.
+            All API keys are stored only on this device using AsyncStorage.{' '}
+            They are never sent to any server other than the service you configured.{' '}
             No analytics. No tracking.
           </Text>
         </View>
@@ -199,23 +196,16 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: Colors.bg },
-  scroll: {
-    padding: Spacing.md,
-    gap: Spacing.sm,
-    paddingBottom: Spacing.xxl,
-  },
-  title: {
+  safe:   { flex: 1, backgroundColor: Colors.bg },
+  scroll: { padding: Spacing.md, gap: Spacing.sm, paddingBottom: Spacing.xxl },
+  title:  {
     fontFamily: FontFamily.monoBold,
     fontSize: FontSize['2xl'],
     color: Colors.textPrimary,
     letterSpacing: 1,
     marginBottom: Spacing.xs,
   },
-  dirRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
+  dirRow: { flexDirection: 'row', gap: Spacing.sm },
   dirBtn: {
     flex: 1,
     paddingVertical: Spacing.sm,
@@ -226,21 +216,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.bgCard,
     alignItems: 'center',
   },
-  dirBtnActive: {
-    borderColor: Colors.accent,
-    backgroundColor: Colors.accentGlow,
-  },
-  dirBtnText: {
-    fontFamily: FontFamily.mono,
-    fontSize: FontSize.sm,
-    color: Colors.textSecondary,
-  },
-  dirBtnTextActive: {
-    color: Colors.accent,
-  },
-  group: {
-    gap: Spacing.sm,
-  },
+  dirBtnActive:     { borderColor: Colors.accent, backgroundColor: Colors.accentGlow },
+  dirBtnText:       { fontFamily: FontFamily.mono, fontSize: FontSize.sm, color: Colors.textSecondary },
+  dirBtnTextActive: { color: Colors.accent },
+  group:  { gap: Spacing.sm },
   infoBox: {
     backgroundColor: Colors.accentGlow,
     borderRadius: Radius.md,
@@ -250,12 +229,8 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
     marginTop: Spacing.sm,
   },
-  infoTitle: {
-    fontFamily: FontFamily.sansSemibold,
-    fontSize: FontSize.sm,
-    color: Colors.accent,
-  },
-  infoBody: {
+  infoTitle: { fontFamily: FontFamily.sansSemibold, fontSize: FontSize.sm, color: Colors.accent },
+  infoBody:  {
     fontFamily: FontFamily.sans,
     fontSize: FontSize.xs,
     color: Colors.textSecondary,
