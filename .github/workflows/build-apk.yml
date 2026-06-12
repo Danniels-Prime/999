@@ -6,6 +6,7 @@ on:
       - main
       - claude/expo-app
       - claude/expo-android-apk-setup-gwoet3
+      - claude/language-app-permissions-o7nmii
     paths:
       - 'expo-app/**'
       - '.github/workflows/build-apk.yml'
@@ -100,12 +101,18 @@ jobs:
             2. Enable **Install from unknown sources** in Settings → Security
             3. Open the downloaded APK and install
 
-            ### Features
-            - EN↔ES translation — works offline with bundled dictionary
-            - IPA phonetics for English words
-            - Voice input (add Deepgram API key in Settings)
-            - History with search
-            - Optional Supabase sync (add credentials in Settings)
+            ### First-time setup after install
+            1. Open OverlayLang
+            2. Tap **Grant Overlay Permission** → enable "Display over other apps"
+            3. Tap **Enable Accessibility** → find OverlayLang → turn it on
+            4. Add your Deepgram API key in Settings for live transcription
+
+            ### Permissions included
+            - Draw over other apps (overlay)
+            - Microphone (background recording)
+            - Accessibility service (reads on-screen text for translation)
+            - Auto-start on boot
+            - Battery optimization exempt (stays alive in background)
           files: expo-app/${{ steps.find_apk.outputs.apk_path }}
           draft: false
           prerelease: false
