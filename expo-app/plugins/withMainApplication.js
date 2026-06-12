@@ -1,29 +1,25 @@
 const { withMainApplication } = require('@expo/config-plugins');
 
 const IMPORT_LINE = 'import com.overlaylang.app.TranscriptionPackage';
-const PACKAGE_LINE = '            packages.add(new TranscriptionPackage())';
-
-// Matches the getPackages() override in the generated MainApplication.kt
-const GET_PACKAGES_REGEX = /(override fun getPackages\(\)[\s\S]*?return packages\n\s*\})/;
 
 module.exports = (config) =>
   withMainApplication(config, (cfg) => {
     let src = cfg.modResults.contents;
 
-    // Add import if missing
-    if (!src.includes('TranscriptionPackage')) {
-      // Insert import after the last existing import line
-      src = src.replace(
-        /(import [^\n]+\n)(?!import )/,
-        `$1${IMPORT_LINE}\n`
-      );
+    if (src.includes('TranscriptionPackage')) return cfg; // already patched
 
-      // Add package registration inside getPackages()
-      src = src.replace(
-        GET_PACKAGES_REGEX,
-        (match) => match.replace('return packages', `${PACKAGE_LINE}\n            return packages`)
-      );
-    }
+    // 1. Inject import — after the package declaration line
+    src = src.replace(
+      /(^package com\.overlaylang\.app\s*\n)/m,
+      `$1\n${IMPORT_LINE}\n`
+    );
+
+    // 2. Register the package — insert ONE line before 'return packages'
+    //    Works regardless of indentation or surrounding whitespace.
+    src = src.replace(
+      /([ \t]+)(return packages)/,
+      (_, indent, ret) => `${indent}packages.add(TranscriptionPackage())\n${indent}${ret}`
+    );
 
     cfg.modResults.contents = src;
     return cfg;
