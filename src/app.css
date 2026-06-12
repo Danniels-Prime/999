@@ -1,0 +1,32 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+@keyframes micPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+
+.mic-active {
+  animation: micPulse 1.4s ease-in-out infinite;
+}
+
+/* clickable word spans */
+.lw {
+  display: inline;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 2px 1px;
+  transition: background 0.12s;
+}
+
+.lw:hover {
+  background: rgba(139, 92, 246, 0.28);
+}
+
+.lw:active {
+  background: rgba(139, 92, 246, 0.5);
+}
+
+/* thin scrollbars */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a1f4a; border-radius: 2px; }
