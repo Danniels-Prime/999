@@ -4,12 +4,7 @@ import { Colors, FontFamily, FontSize } from '../../constants/theme';
 
 function TabIcon({ emoji, focused }: { emoji: string; focused: boolean }) {
   return (
-    <Text
-      style={{
-        fontSize: focused ? 22 : 20,
-        opacity: focused ? 1 : 0.45,
-      }}
-    >
+    <Text style={{ fontSize: focused ? 22 : 20, opacity: focused ? 1 : 0.45 }}>
       {emoji}
     </Text>
   );
@@ -39,6 +34,13 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="index"
+        options={{
+          title: 'Live',
+          tabBarIcon: ({ focused }) => <TabIcon emoji="🎙️" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="translate"
         options={{
           title: 'Translate',
           tabBarIcon: ({ focused }) => <TabIcon emoji="⚡" focused={focused} />,

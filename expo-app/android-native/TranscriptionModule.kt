@@ -20,26 +20,33 @@ class TranscriptionModule(private val reactContext: ReactApplicationContext) :
         super.initialize()
         val br = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                val text = intent.getStringExtra(TranscriptionService.EXTRA_TEXT) ?: return
-                val params = Arguments.createMap().apply { putString("text", text) }
+                val text   = intent.getStringExtra(TranscriptionService.EXTRA_TEXT)   ?: return
+                val isFinal = intent.getBooleanExtra(TranscriptionService.EXTRA_IS_FINAL, true)
+                val event  = if (isFinal) "onTranscription" else "onTranscriptionPartial"
+                val params = Arguments.createMap().apply {
+                    putString("text", text)
+                    putBoolean("isFinal", isFinal)
+                }
                 reactContext
                     .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                    .emit("onTranscription", params)
+                    .emit(event, params)
             }
         }
         receiver = br
-        val filter = IntentFilter(TranscriptionService.ACTION_TRANSCRIPTION)
+        val filter = IntentFilter().apply {
+            addAction(TranscriptionService.ACTION_TRANSCRIPTION)
+            addAction(TranscriptionService.ACTION_TRANSCRIPTION_PARTIAL)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             reactContext.registerReceiver(br, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             reactContext.registerReceiver(br, filter)
         }
     }
 
     override fun invalidate() {
-        receiver?.let {
-            try { reactContext.unregisterReceiver(it) } catch (_: Exception) {}
-        }
+        receiver?.let { try { reactContext.unregisterReceiver(it) } catch (_: Exception) {} }
         receiver = null
         super.invalidate()
     }
@@ -50,11 +57,10 @@ class TranscriptionModule(private val reactContext: ReactApplicationContext) :
             putExtra(TranscriptionService.EXTRA_API_KEY, apiKey)
             putExtra(TranscriptionService.EXTRA_LANGUAGE, language)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             reactContext.startForegroundService(intent)
-        } else {
+        else
             reactContext.startService(intent)
-        }
     }
 
     @ReactMethod
@@ -68,19 +74,17 @@ class TranscriptionModule(private val reactContext: ReactApplicationContext) :
             action = OverlayService.ACTION_SHOW
             putExtra(OverlayService.EXTRA_TEXT, text)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             reactContext.startForegroundService(intent)
-        } else {
+        else
             reactContext.startService(intent)
-        }
     }
 
     @ReactMethod
     fun hideOverlay() {
-        val intent = Intent(reactContext, OverlayService::class.java).apply {
+        reactContext.startService(Intent(reactContext, OverlayService::class.java).apply {
             action = OverlayService.ACTION_HIDE
-        }
-        reactContext.startService(intent)
+        })
     }
 
     @ReactMethod
@@ -88,10 +92,6 @@ class TranscriptionModule(private val reactContext: ReactApplicationContext) :
         promise.resolve(Settings.canDrawOverlays(reactContext))
     }
 
-    // Required for NativeEventEmitter support on the JS side
-    @ReactMethod
-    fun addListener(eventName: String) {}
-
-    @ReactMethod
-    fun removeListeners(count: Int) {}
+    @ReactMethod fun addListener(eventName: String) {}
+    @ReactMethod fun removeListeners(count: Int) {}
 }

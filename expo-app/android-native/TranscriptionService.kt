@@ -11,30 +11,30 @@ import android.media.MediaRecorder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
-import kotlinx.coroutines.Job
-import java.io.ByteArrayOutputStream
-import java.io.DataOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.*
+import okio.ByteString
 import org.json.JSONObject
 
 class TranscriptionService : Service() {
 
     companion object {
-        const val ACTION_TRANSCRIPTION = "com.overlaylang.app.ACTION_TRANSCRIPTION"
-        const val EXTRA_TEXT     = "transcription_text"
-        const val EXTRA_API_KEY  = "api_key"
-        const val EXTRA_LANGUAGE = "language"
-        private const val CHANNEL_ID       = "transcription_service"
-        private const val NOTIFICATION_ID  = 1001
-        private const val SAMPLE_RATE      = 16000
-        private const val CHUNK_SECONDS    = 4
+        const val ACTION_TRANSCRIPTION         = "com.overlaylang.app.ACTION_TRANSCRIPTION"
+        const val ACTION_TRANSCRIPTION_PARTIAL = "com.overlaylang.app.ACTION_TRANSCRIPTION_PARTIAL"
+        const val EXTRA_TEXT       = "transcription_text"
+        const val EXTRA_IS_FINAL   = "is_final"
+        const val EXTRA_API_KEY    = "api_key"
+        const val EXTRA_LANGUAGE   = "language"
+        private const val CHANNEL_ID      = "transcription_service"
+        private const val NOTIFICATION_ID = 1001
+        private const val SAMPLE_RATE     = 16000
+        // 100 ms of PCM-16 mono = 16000 * 2 * 0.1 = 3200 bytes
+        private const val CHUNK_BYTES     = 3200
     }
 
-    private var serviceScope  = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val httpClient   = OkHttpClient()
     private var audioRecord: AudioRecord? = null
-    private var apiKey:   String = ""
-    private var language: String = "en-US"
+    private var webSocket:   WebSocket?   = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -44,154 +44,122 @@ class TranscriptionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        apiKey   = intent?.getStringExtra(EXTRA_API_KEY)  ?: ""
-        language = intent?.getStringExtra(EXTRA_LANGUAGE) ?: "en-US"
+        val apiKey   = intent?.getStringExtra(EXTRA_API_KEY)   ?: return START_NOT_STICKY
+        val language = intent.getStringExtra(EXTRA_LANGUAGE)  ?: "en-US"
         startForeground(NOTIFICATION_ID, buildNotification())
-        serviceScope.launch { recordAndTranscribe() }
+        serviceScope.launch { startStreaming(apiKey, language) }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        webSocket?.close(1000, "Service stopped")
+        webSocket = null
         serviceScope.cancel()
-        audioRecord?.let {
-            if (it.recordingState == AudioRecord.RECORDSTATE_RECORDING) it.stop()
-            it.release()
+        audioRecord?.apply {
+            if (recordingState == AudioRecord.RECORDSTATE_RECORDING) stop()
+            release()
         }
         audioRecord = null
         super.onDestroy()
     }
 
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Background Transcription",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "OverlayLang is listening in the background"
-            setSound(null, null)
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-    }
+    private suspend fun startStreaming(apiKey: String, language: String) {
+        val langCode = if (language.startsWith("es")) "es" else "en-US"
+        val url = "wss://api.deepgram.com/v1/listen" +
+            "?model=nova-2&language=$langCode" +
+            "&interim_results=true&punctuate=true" +
+            "&encoding=linear16&sample_rate=$SAMPLE_RATE&channels=1"
 
-    private fun buildNotification(): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OverlayLang — listening...")
-            .setContentText("Tap to return to app")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setOngoing(true)
-            .setSilent(true)
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Token $apiKey")
             .build()
+
+        val ready = CompletableDeferred<Unit>()
+
+        val listener = object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, response: Response) {
+                ready.complete(Unit)
+            }
+            override fun onMessage(ws: WebSocket, text: String) {
+                parseAndBroadcast(text)
+            }
+            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                ready.completeExceptionally(t)
+                stopSelf()
+            }
+            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                stopSelf()
+            }
+        }
+
+        webSocket = httpClient.newWebSocket(request, listener)
+
+        try {
+            ready.await()
+            recordAndStream()
+        } catch (_: Exception) {
+            stopSelf()
+        }
     }
 
-    private suspend fun recordAndTranscribe() {
-        val bufferSize = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        ).coerceAtLeast(SAMPLE_RATE * 2)
-
+    private suspend fun recordAndStream() {
+        val minBuf = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+        )
         val recorder = try {
             AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
+                maxOf(CHUNK_BYTES * 4, minBuf)
             )
         } catch (e: SecurityException) {
-            return
+            stopSelf(); return
         }
 
         audioRecord = recorder
         recorder.startRecording()
+        val buffer = ByteArray(CHUNK_BYTES)
 
-        val chunkSamples = SAMPLE_RATE * CHUNK_SECONDS
-        val buffer       = ShortArray(chunkSamples)
-
-        // Job.isActive is a direct interface property — no extension resolution
-        // issues across different kotlinx.coroutines / Kotlin versions.
         val job = currentCoroutineContext()[Job] ?: return
-
         while (job.isActive) {
-            var totalRead = 0
-            while (totalRead < chunkSamples && job.isActive) {
-                val read = recorder.read(buffer, totalRead, chunkSamples - totalRead)
-                if (read <= 0) break
-                totalRead += read
-            }
-            if (totalRead > 0 && apiKey.isNotBlank()) {
-                val wavBytes = buildWav(buffer, totalRead)
-                try {
-                    val text = postToDeepgram(wavBytes, apiKey, language)
-                    if (text.isNotBlank()) broadcastResult(text)
-                } catch (_: Exception) {}
-            }
+            val read = recorder.read(buffer, 0, CHUNK_BYTES)
+            if (read > 0) webSocket?.send(ByteString.of(*buffer.copyOf(read)))
         }
     }
 
-    private fun buildWav(pcm: ShortArray, samples: Int): ByteArray {
-        val out = ByteArrayOutputStream()
-        val dos = DataOutputStream(out)
-        val dataSize  = samples * 2
-        val chunkSize = 36 + dataSize
-
-        dos.writeBytes("RIFF")
-        dos.writeIntLE(chunkSize)
-        dos.writeBytes("WAVE")
-        dos.writeBytes("fmt ")
-        dos.writeIntLE(16)
-        dos.writeShortLE(1)
-        dos.writeShortLE(1)
-        dos.writeIntLE(SAMPLE_RATE)
-        dos.writeIntLE(SAMPLE_RATE * 2)
-        dos.writeShortLE(2)
-        dos.writeShortLE(16)
-        dos.writeBytes("data")
-        dos.writeIntLE(dataSize)
-        for (i in 0 until samples) {
-            val s = pcm[i].toInt()
-            dos.write(s and 0xFF)
-            dos.write((s shr 8) and 0xFF)
-        }
-        dos.flush()
-        return out.toByteArray()
+    private fun parseAndBroadcast(json: String) {
+        try {
+            val obj = JSONObject(json)
+            if (obj.optString("type") != "Results") return
+            val isFinal = obj.optBoolean("is_final", false)
+            val transcript = obj
+                .getJSONObject("channel")
+                .getJSONArray("alternatives")
+                .getJSONObject(0)
+                .getString("transcript")
+                .trim()
+            if (transcript.isBlank()) return
+            val action = if (isFinal) ACTION_TRANSCRIPTION else ACTION_TRANSCRIPTION_PARTIAL
+            sendBroadcast(Intent(action)
+                .putExtra(EXTRA_TEXT, transcript)
+                .putExtra(EXTRA_IS_FINAL, isFinal))
+        } catch (_: Exception) {}
     }
 
-    private fun postToDeepgram(wav: ByteArray, key: String, lang: String): String {
-        val langCode = if (lang.startsWith("es")) "es" else "en-US"
-        val url  = URL("https://api.deepgram.com/v1/listen?model=nova-2&language=$langCode")
-        val conn = url.openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Token $key")
-        conn.setRequestProperty("Content-Type", "audio/wav")
-        conn.doOutput      = true
-        conn.connectTimeout = 10_000
-        conn.readTimeout    = 15_000
-        conn.outputStream.use { it.write(wav) }
-
-        if (conn.responseCode != 200) return ""
-        val body = conn.inputStream.bufferedReader().readText()
-        val json = JSONObject(body)
-        return json
-            .getJSONObject("results")
-            .getJSONArray("channels")
-            .getJSONObject(0)
-            .getJSONArray("alternatives")
-            .getJSONObject(0)
-            .getString("transcript")
-            .trim()
+    private fun createNotificationChannel() {
+        val ch = NotificationChannel(CHANNEL_ID, "Live Transcription", NotificationManager.IMPORTANCE_LOW)
+        ch.setSound(null, null)
+        getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 
-    private fun broadcastResult(text: String) {
-        sendBroadcast(Intent(ACTION_TRANSCRIPTION).putExtra(EXTRA_TEXT, text))
-    }
-}
-
-private fun DataOutputStream.writeIntLE(v: Int) {
-    write(v and 0xFF); write((v shr 8) and 0xFF)
-    write((v shr 16) and 0xFF); write((v shr 24) and 0xFF)
-}
-
-private fun DataOutputStream.writeShortLE(v: Int) {
-    write(v and 0xFF); write((v shr 8) and 0xFF)
+    private fun buildNotification(): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("OverlayLang — live captions")
+            .setContentText("Tap to return to app")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true).setSilent(true)
+            .build()
 }
