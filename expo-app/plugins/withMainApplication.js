@@ -1,27 +1,34 @@
 const { withMainApplication } = require('@expo/config-plugins');
 
 const IMPORT_LINE = 'import com.overlaylang.app.TranscriptionPackage';
-const PACKAGE_LINE = '            packages.add(new TranscriptionPackage())';
-
-// Matches the getPackages() override in the generated MainApplication.kt
-const GET_PACKAGES_REGEX = /(override fun getPackages\(\)[\s\S]*?return packages\n\s*\})/;
 
 module.exports = (config) =>
   withMainApplication(config, (cfg) => {
     let src = cfg.modResults.contents;
 
-    // Add import if missing
-    if (!src.includes('TranscriptionPackage')) {
-      // Insert import after the last existing import line
-      src = src.replace(
-        /(import [^\n]+\n)(?!import )/,
-        `$1${IMPORT_LINE}\n`
-      );
+    if (src.includes('TranscriptionPackage')) {
+      cfg.modResults.contents = src;
+      return cfg;
+    }
 
-      // Add package registration inside getPackages()
+    // Insert import after the last existing import line
+    const lastImportIdx = src.lastIndexOf('\nimport ');
+    if (lastImportIdx !== -1) {
+      const endOfLine = src.indexOf('\n', lastImportIdx + 1);
+      src = src.slice(0, endOfLine + 1) + IMPORT_LINE + '\n' + src.slice(endOfLine + 1);
+    }
+
+    // New-arch template (RN 0.73+): PackageList(this).packages.apply { ... }
+    if (src.includes('PackageList(this).packages.apply {')) {
       src = src.replace(
-        GET_PACKAGES_REGEX,
-        (match) => match.replace('return packages', `${PACKAGE_LINE}\n            return packages`)
+        'PackageList(this).packages.apply {',
+        'PackageList(this).packages.apply {\n            add(TranscriptionPackage())'
+      );
+    } else {
+      // Old-arch fallback: has `return packages` inside getPackages()
+      src = src.replace(
+        /(\n(\s+))return packages/,
+        (_, nl, indent) => `${nl}${indent}packages.add(TranscriptionPackage())${nl}${indent}return packages`
       );
     }
 

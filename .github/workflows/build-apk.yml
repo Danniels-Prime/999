@@ -44,6 +44,13 @@ jobs:
           JAVA_HOME_17_X64: ${{ env.JAVA_HOME_17_X64 }}
         run: npx expo prebuild --platform android --no-install
 
+      - name: Show generated MainApplication.kt
+        working-directory: expo-app
+        run: |
+          FILE=$(find android -name "MainApplication.kt" | head -1)
+          echo "=== $FILE ==="
+          cat "$FILE"
+
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
@@ -100,12 +107,11 @@ jobs:
             2. Enable **Install from unknown sources** in Settings → Security
             3. Open the downloaded APK and install
 
-            ### Features
-            - EN↔ES translation — works offline with bundled dictionary
-            - IPA phonetics for English words
-            - Voice input (add Deepgram API key in Settings)
-            - History with search
-            - Optional Supabase sync (add credentials in Settings)
+            ### What's new in v1.1.0
+            - **Real-time live captions** via Deepgram WebSocket — words appear as you speak
+            - **Tap any word in the app** → translation + IPA + examples bottom sheet
+            - **Tap any word in the floating overlay** → translation card appears without leaving your app
+            - EN↔ES and ES↔EN — toggle direction in Settings
           files: expo-app/${{ steps.find_apk.outputs.apk_path }}
           draft: false
           prerelease: false
