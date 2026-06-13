@@ -13,7 +13,7 @@ export interface Segment {
   timestamp: number;
 }
 
-export function useStreamingTranscription(apiKey: string, language = 'en-US') {
+export function useStreamingTranscription(apiKey: string, language = 'en-US', langDirection = 'en_es') {
   const [active, setActive]     = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [partial, setPartial]   = useState('');
@@ -27,12 +27,12 @@ export function useStreamingTranscription(apiKey: string, language = 'en-US') {
         ...prev,
         { id: `${Date.now()}-${Math.random()}`, text: e.text, timestamp: Date.now() },
       ]);
-      TranscriptionModule?.showOverlay(e.text);
+      TranscriptionModule?.showOverlay(e.text, langDirection);
     });
 
     const partialSub = emitter.addListener('onTranscriptionPartial', (e: { text: string }) => {
       setPartial(e.text);
-      TranscriptionModule?.showOverlay(e.text + ' …');
+      TranscriptionModule?.showOverlay(e.text + ' …', langDirection);
     });
 
     return () => {

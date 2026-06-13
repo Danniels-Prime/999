@@ -50,7 +50,8 @@ export default function LiveScreen() {
   const langCode = settings.langDirection === 'en_es' ? 'en-US' : 'es';
   const { active, segments, partial, start, stop } = useStreamingTranscription(
     settings.deepgramApiKey,
-    langCode
+    langCode,
+    settings.langDirection
   );
 
   const scrollRef = useRef<ScrollView>(null);

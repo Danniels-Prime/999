@@ -69,10 +69,11 @@ class TranscriptionModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun showOverlay(text: String) {
+    fun showOverlay(text: String, lang: String = "en_es") {
         val intent = Intent(reactContext, OverlayService::class.java).apply {
             action = OverlayService.ACTION_SHOW
             putExtra(OverlayService.EXTRA_TEXT, text)
+            putExtra(OverlayService.EXTRA_LANG, lang)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             reactContext.startForegroundService(intent)
